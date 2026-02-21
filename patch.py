@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # Copies changes from one branch to another.
+# Source branch (branch1) is read via git show/diff only, so it can be checked out in another 
+# worktree.
+# 
+# Usage: python3 patch.py branch1 branch2
 import subprocess
 import sys
 import os
@@ -17,37 +21,37 @@ def main():
     for branch in [branch1, branch2]:
         result = run(f"git rev-parse --verify {branch}")
         if result.returncode != 0:
-            print(f"Branch '{branch}' does not exist")
+            print(f"Branch '{branch}' does not exist: {result.stderr.strip()}")
             sys.exit(1)
 
-    result = run(f"git checkout {branch1}")
+    # Get changed files from branch1 without checking it out.
+    result = run(f"git --no-pager diff --name-only databricks/master..{branch1}")
     if result.returncode != 0:
-        print(f"Failed to checkout {branch1}")
+        print(f"Failed to get changed files: {result.stderr.strip()}")
         sys.exit(1)
 
-    result = run("git --no-pager diff --name-only origin/master...HEAD")
-    if result.returncode != 0:
-        print("Failed to get changed files")
-        sys.exit(1)
-
-    files = [f for f in result.stdout.strip().split('\n') if f]
+    files = [f for f in result.stdout.strip().split("\n") if f]
     print("Changed files:")
     for f in files:
         print(f"  {f}")
-    
+
     confirm = input("Proceed? [y/N]: ")
-    if confirm.lower() != 'y':
+    if confirm.lower() != "y":
         print("Aborted")
         sys.exit(0)
 
+    # Get file contents from branch1 without checking it out.
     file_contents = {}
     for f in files:
-        with open(f, 'r') as fp:
-            file_contents[f] = fp.read()
+        result = run(f"git show {branch1}:{f}")
+        if result.returncode != 0:
+            print(f"Failed to read {f} from {branch1}: {result.stderr.strip()}")
+            sys.exit(1)
+        file_contents[f] = result.stdout
 
     result = run(f"git checkout {branch2}")
     if result.returncode != 0:
-        print(f"Failed to checkout {branch2}")
+        print(f"Failed to checkout {branch2}: {result.stderr.strip()}")
         sys.exit(1)
 
     for f, content in file_contents.items():
