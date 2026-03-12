@@ -11,6 +11,22 @@ import os
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
+def get_worktree_for_branch(branch) -> str | None:
+    """Return the worktree path if branch is checked out in any worktree, else None."""
+    result = run("git worktree list --porcelain")
+    if result.returncode != 0:
+        return None
+    current_path: str | None = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_path = line.split(" ", 1)[1].strip()
+        elif line.startswith("branch ") and current_path is not None:
+            ref = line.split(" ", 1)[1].strip()  # refs/heads/branch-name
+            if ref == f"refs/heads/{branch}":
+                return current_path
+            current_path = None
+    return None
+
 def main():
     if len(sys.argv) != 3:
         print("Usage: python3 patch.py branch1 branch2")
@@ -25,7 +41,7 @@ def main():
             sys.exit(1)
 
     # Get changed files from branch1 without checking it out.
-    result = run(f"git --no-pager diff --name-only databricks/master..{branch1}")
+    result = run(f"git --no-pager diff --name-only databricks/master...{branch1}")
     if result.returncode != 0:
         print(f"Failed to get changed files: {result.stderr.strip()}")
         sys.exit(1)
@@ -49,14 +65,23 @@ def main():
             sys.exit(1)
         file_contents[f] = result.stdout
 
-    result = run(f"git checkout {branch2}")
-    if result.returncode != 0:
-        print(f"Failed to checkout {branch2}: {result.stderr.strip()}")
-        sys.exit(1)
+    branch2_worktree = get_worktree_for_branch(branch2)
+    if branch2_worktree is not None:
+        # branch2 is checked out in another worktree — apply patch there
+        target_dir = branch2_worktree
+        print(f"Applying patch in branch2 worktree: {target_dir}")
+    else:
+        result = run(f"git checkout {branch2}")
+        if result.returncode != 0:
+            print(f"Failed to checkout {branch2}: {result.stderr.strip()}")
+            sys.exit(1)
+        target_dir = "."
 
     for f, content in file_contents.items():
-        os.makedirs(os.path.dirname(f) or '.', exist_ok=True)
-        with open(f, 'w') as fp:
+        dest_dir = os.path.join(target_dir, os.path.dirname(f)) if os.path.dirname(f) else target_dir
+        os.makedirs(dest_dir or ".", exist_ok=True)
+        dest_file = os.path.join(target_dir, f)
+        with open(dest_file, "w") as fp:
             fp.write(content)
 
     print(f"Patched {len(files)} files")
