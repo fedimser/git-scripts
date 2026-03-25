@@ -41,7 +41,7 @@ def main():
             sys.exit(1)
 
     # Get changed files from branch1 without checking it out.
-    result = run(f"git --no-pager diff --name-only databricks/master...{branch1}")
+    result = run(f"git --no-pager diff --name-only origin/main...{branch1}")
     if result.returncode != 0:
         print(f"Failed to get changed files: {result.stderr.strip()}")
         sys.exit(1)
